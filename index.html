@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>診所線上預約與後台管理系統</title>
+  <!-- 載入 SheetJS (用於匯出 Excel) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --primary-color: #007bff;
+      --success-color: #28a745;
+      --danger-color: #dc3545;
+      --warning-color: #ffc107;
+      --bg-color: #f8f9fa;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: var(--bg-color); margin: 0; padding: 20px; color: #333; }
+    .container { max-width: 1050px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    
+    /* 頁籤切換 */
+    .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid #dee2e6; }
+    .tab-btn { padding: 12px 24px; border: none; background: none; font-size: 16px; font-weight: bold; cursor: pointer; color: #6c757d; border-bottom: 3px solid transparent; }
+    .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* 表單樣式 */
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: 600; }
+    input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px; box-sizing: border-box; }
+    .required::after { content: " *"; color: var(--danger-color); }
+    button.btn-submit { background: var(--primary-color); color: white; padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; width: 100%; }
+    button.btn-submit:hover { opacity: 0.9; }
+
+    /* 診次剩餘名額卡片 */
+    .session-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; }
+    .session-card { border: 2px solid #ced4da; border-radius: 8px; padding: 15px; text-align: center; cursor: pointer; transition: 0.2s; background: #fff; }
+    .session-card.selected { border-color: var(--primary-color); background: #e7f1ff; box-shadow: 0 0 8px rgba(0,123,255,0.3); }
+    .session-card.full { border-color: var(--danger-color); background: #f8d7da; cursor: not-allowed; opacity: 0.8; }
+    .session-title { font-weight: bold; font-size: 16px; margin-bottom: 5px; }
+    .session-count { font-size: 14px; color: #495057; }
+    .session-count strong { color: var(--success-color); font-size: 16px; }
+    .session-card.full .session-count strong { color: var(--danger-color); }
+    
+    /* 後台管理列與控制 */
+    .admin-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 10px; flex-wrap: wrap; }
+    .view-selector { display: flex; gap: 10px; align-items: center; background: #e9ecef; padding: 12px 18px; border-radius: 8px; width: 100%; box-sizing: border-box; flex-wrap: wrap; }
+    .view-btn { padding: 6px 14px; border: 1px solid #ced4da; background: #fff; border-radius: 4px; cursor: pointer; font-weight: 600; }
+    .view-btn.active { background: var(--primary-color); color: white; border-color: var(--primary-color); }
+
+    .btn-export { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+    .btn-excel { background: #198754; color: white; }
+    
+    /* 表格樣式 */
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+    th, td { border: 1px solid #dee2e6; padding: 10px; text-align: left; }
+    th { background: #f1f3f5; }
+
+    /* 分隔線與診次標題列 */
+    tr.session-header-row td {
+      background: #e7f1ff;
+      border-top: 3px solid #0d6efd;
+      border-bottom: 2px solid #0d6efd;
+      color: #0b5ed7;
+      font-size: 15px;
+      padding: 10px 15px;
+    }
+    tr.date-header-row td {
+      background: #343a40;
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: bold;
+      padding: 8px 15px;
+    }
+
+    .badge { padding: 3px 8px; border-radius: 4px; font-size: 12px; color: #fff; display: inline-block; margin-right: 2px; }
+    .badge-op { background: #fd7e14; }
+    .badge-exam { background: #6f42c1; }
+    .badge-clinic { background: #0d6efd; }
+    .badge-first { background: #e65100; font-weight: bold; }
+    .badge-emergency { background: #dc3545; }
+    
+    .btn-sm { padding: 4px 8px; font-size: 12px; border-radius: 4px; border: none; cursor: pointer; margin-right: 2px; }
+    .btn-edit { background: var(--warning-color); color: #000; }
+    .btn-delete { background: var(--danger-color); color: white; }
+    
+    /* Modal 彈出視窗 */
+    .modal { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+    .modal-content { background: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('client')">前台線上預約</button>
+    <button class="tab-btn" onclick="switchTab('admin')">管理員後台控制台</button>
+  </div>
+
+  <!-- ==================== 前台預約介面 ==================== -->
+  <div id="client-tab" class="tab-content active">
+    <h2>診所線上預約系統</h2>
+    
+    <div class="form-group">
+      <label class="required">選擇預約類型</label>
+      <select id="type-select" onchange="toggleFormType()">
+        <option value="clinic">看診預約</option>
+        <option value="surgery">手術預約 (40分鐘/台)</option>
+        <option value="exam">檢查預約 (30分鐘/台)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="required">選擇預約日期</label>
+      <input type="date" id="booking-date" onchange="updateAvailableSlots()">
+    </div>
+
+    <!-- 診次選擇卡片 -->
+    <label class="required">選擇預約診次（剩餘名額即時顯示）</label>
+    <div class="session-cards" id="session-container">
+      <div class="session-card" id="card-morning" onclick="selectSession('morning')">
+        <div class="session-title">早診 (09:00-12:00)</div>
+        <div class="session-count" id="count-morning">計算中...</div>
+      </div>
+      <div class="session-card" id="card-afternoon" onclick="selectSession('afternoon')">
+        <div class="session-title">午診 (14:30-17:30)</div>
+        <div class="session-count" id="count-afternoon">計算中...</div>
+      </div>
+      <div class="session-card" id="card-evening" onclick="selectSession('evening')">
+        <div class="session-title">晚診 (18:00-20:30)</div>
+        <div class="session-count" id="count-evening">計算中...</div>
+      </div>
+    </div>
+
+    <!-- 手術/檢查 特定欄位 -->
+    <div id="anesthesia-group" class="form-group" style="display: none;">
+      <label class="required">麻醉方式</label>
+      <select id="anesthesia-type" onchange="updateAvailableSlots()">
+        <option value="anesthesia">需全身/深度麻醉</option>
+        <option value="local">局部麻醉 / 不麻醉</option>
+      </select>
+    </div>
+
+    <!-- 檢查專用：有無代餐選項 -->
+    <div id="meal-group" class="form-group" style="display: none;">
+      <label class="required">代餐需求</label>
+      <select id="meal-option">
+        <option value="none">無</option>
+        <option value="need">有代餐</option>
+      </select>
+    </div>
+
+    <!-- 預約時間欄位 (手術/檢查顯示) -->
+    <div id="time-group" class="form-group" style="display: none;">
+      <label class="required" id="time-label">預約具體時間點</label>
+      <input type="time" id="booking-time">
+    </div>
+
+    <div class="form-group">
+      <label class="required">姓名</label>
+      <input type="text" id="patient-name" placeholder="請輸入姓名">
+    </div>
+
+    <div class="form-group">
+      <label>連絡電話</label>
+      <input type="tel" id="patient-phone" placeholder="例如：0912345678">
+    </div>
+
+    <div class="form-group">
+      <label>出生年月日</label>
+      <input type="date" id="patient-dob">
+    </div>
+
+    <div class="form-group" id="identity-group">
+      <label>門診身份</label>
+      <select id="patient-identity">
+        <option value="初診">初診</option>
+        <option value="複診">複診</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label id="note-label">就診原因 (備註)</label>
+      <textarea id="booking-note" rows="3"></textarea>
+    </div>
+
+    <button class="btn-submit" onclick="submitBooking()">確認提交預約</button>
+  </div>
+
+  <!-- ==================== 後台管理介面 ==================== -->
+  <div id="admin-tab" class="tab-content">
+    <div class="admin-controls">
+      <h2>後台預約總覽與排程管理</h2>
+      <button class="btn-export btn-excel" onclick="exportToExcel()">匯出 Excel</button>
+    </div>
+
+    <!-- 檢視切換與日期選擇列 -->
+    <div class="view-selector">
+      <div>
+        <button class="view-btn active" id="btn-view-day" onclick="setAdminViewMode('day')">日檢視</button>
+        <button class="view-btn" id="btn-view-week" onclick="setAdminViewMode('week')">週檢視</button>
+        <button class="view-btn" id="btn-view-month" onclick="setAdminViewMode('month')">月檢視</button>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <label id="date-picker-label" style="margin:0; font-weight:bold;">選擇日期：</label>
+        <input type="date" id="admin-date-picker" onchange="renderAdminTable()" style="width: auto; padding: 6px 10px;">
+        <input type="month" id="admin-month-picker" onchange="renderAdminTable()" style="width: auto; padding: 6px 10px; display: none;">
+      </div>
+
+      <div style="margin-left: auto;">
+        <button class="btn-export" style="background: #6c757d; color:white;" onclick="openEmergencyModal()">+ 手動新增/緊急特別號</button>
+      </div>
+    </div>
+
+    <table id="admin-table">
+      <thead>
+        <tr>
+          <th style="width: 14%;">診次 / 時間</th>
+          <th style="width: 12%;">類別</th>
+          <th style="width: 8%;">號碼</th>
+          <th style="width: 12%;">姓名</th>
+          <th style="width: 12%;">電話</th>
+          <th style="width: 11%;">生日</th>
+          <th style="width: 16%;">項目 / 代餐 / 備註</th>
+          <th style="width: 15%;">操作</th>
+        </tr>
+      </thead>
+      <tbody id="admin-table-body">
+        <!-- 動態渲染資料 -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 後台編輯/新增 Modal -->
+<div id="edit-modal" class="modal">
+  <div class="modal-content">
+    <h3 id="modal-title">編輯預約資料</h3>
+    <input type="hidden" id="edit-id">
+    
+    <div class="form-group">
+      <label class="required">日期</label>
+      <input type="date" id="edit-date">
+    </div>
+    <div class="form-group">
+      <label>時間 (手術/檢查或特別指定)</label>
+      <input type="time" id="edit-time">
+    </div>
+    <div class="form-group">
+      <label>診次</label>
+      <select id="edit-session">
+        <option value="morning">早診 (09:00-12:00)</option>
+        <option value="afternoon">午診 (14:30-17:30)</option>
+        <option value="evening">晚診 (18:00-20:30)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="required">姓名</label>
+      <input type="text" id="edit-name">
+    </div>
+    <div class="form-group">
+      <label>電話</label>
+      <input type="text" id="edit-phone">
+    </div>
+    <div class="form-group">
+      <label>生日</label>
+      <input type="date" id="edit-dob">
+    </div>
+    <div class="form-group" id="edit-identity-group">
+      <label>門診身份</label>
+      <select id="edit-identity">
+        <option value="初診">初診</option>
+        <option value="複診">複診</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>號碼 (包含緊急特別號/5的倍數號)</label>
+      <input type="number" id="edit-number" placeholder="若留空或手動預約可指定號碼">
+    </div>
+    <div class="form-group">
+      <label>麻醉醫師 (僅有麻醉項目需填寫)</label>
+      <input type="text" id="edit-anesthesiologist" placeholder="例如：王醫師">
+    </div>
+    <div class="form-group">
+      <label>項目 / 原因 / 備註</label>
+      <textarea id="edit-note" rows="2"></textarea>
+    </div>
+    <div style="display: flex; gap: 10px; margin-top: 20px;">
+      <button class="btn-submit" onclick="saveEdit()">儲存變更</button>
+      <button class="btn-submit" style="background: #6c757d;" onclick="closeModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let bookings = [
+    { id: 1, type: 'surgery', date: '2026-08-12', session: 'morning', time: '09:30', name: '張小明', phone: '0911123456', dob: '1985-05-20', identity: '', option: 'anesthesia', meal: 'none', detail: '腹腔鏡手術', number: null, anesthesiologist: '陳麻醉醫師', isEmergency: false },
+    { id: 2, type: 'exam', date: '2026-08-12', session: 'morning', time: '10:30', name: '李大同', phone: '0922333444', dob: '1990-10-10', identity: '', option: 'local', meal: 'need', detail: '胃鏡檢查', number: null, anesthesiologist: '', isEmergency: false },
+    { id: 3, type: 'clinic', date: '2026-08-12', session: 'morning', time: '', name: '王美麗', phone: '0933555777', dob: '1978-01-01', identity: '初診', option: '', meal: 'none', detail: '長期胃痛', number: 1, anesthesiologist: '', isEmergency: false },
+    { id: 4, type: 'clinic', date: '2026-08-12', session: 'afternoon', time: '', name: '林小華', phone: '0955666777', dob: '1992-03-15', identity: '複診', option: '', meal: 'none', detail: '回診', number: 1, anesthesiologist: '', isEmergency: false },
+    { id: 5, type: 'surgery', date: '2026-08-12', session: 'evening', time: '18:30', name: '趙先生', phone: '0988123123', dob: '1980-07-07', identity: '', option: 'anesthesia', meal: 'none', detail: '痔瘡手術', number: null, anesthesiologist: '林麻醉醫師', isEmergency: false }
+  ];
+
+  let selectedSession = 'morning';
+  let adminViewMode = 'day'; // 'day', 'week', 'month'
+
+  const SESSION_LIMITS = { 
+    morning: 30,    // 早診 (09:00-12:00)
+    afternoon: 30,  // 午診 (14:30-17:30)
+    evening: 25     // 晚診 (18:00-20:30)
+  };
+
+  const SESSION_NAMES = {
+    morning: '早診 (09:00 - 12:00)',
+    afternoon: '午診 (14:30 - 17:30)',
+    evening: '晚診 (18:00 - 20:30)'
+  };
+
+  const today = new Date().toISOString().split('T')[0];
+  const currentMonth = today.substring(0, 7);
+
+  document.getElementById('booking-date').value = today;
+  document.getElementById('admin-date-picker').value = today;
+  document.getElementById('admin-month-picker').value = currentMonth;
+
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    if (tab === 'client') {
+      document.querySelectorAll('.tab-btn')[0].classList.add('active');
+      document.getElementById('client-tab').classList.add('active');
+      updateAvailableSlots();
+    } else {
+      document.querySelectorAll('.tab-btn')[1].classList.add('active');
+      document.getElementById('admin-tab').classList.add('active');
+      renderAdminTable();
+    }
+  }
+
+  function setAdminViewMode(mode) {
+    adminViewMode = mode;
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`btn-view-${mode}`).classList.add('active');
+
+    const datePicker = document.getElementById('admin-date-picker');
+    const monthPicker = document.getElementById('admin-month-picker');
+    const label = document.getElementById('date-picker-label');
+
+    if (mode === 'month') {
+      datePicker.style.display = 'none';
+      monthPicker.style.display = 'inline-block';
+      label.innerText = '選擇月份：';
+    } else {
+      datePicker.style.display = 'inline-block';
+      monthPicker.style.display = 'none';
+      label.innerText = mode === 'day' ? '選擇日期：' : '選擇基準週日期：';
+    }
+
+    renderAdminTable();
+  }
+
+  function toggleFormType() {
+    const type = document.getElementById('type-select').value;
+    const isClinic = type === 'clinic';
+    const isExam = type === 'exam';
+    
+    document.getElementById('anesthesia-group').style.display = isClinic ? 'none' : 'block';
+    document.getElementById('meal-group').style.display = isExam ? 'block' : 'none';
+    document.getElementById('identity-group').style.display = isClinic ? 'block' : 'none';
+    
+    const timeGroup = document.getElementById('time-group');
+    if (isClinic) {
+      timeGroup.style.display = 'none';
+      document.getElementById('booking-time').value = '';
+    } else {
+      timeGroup.style.display = 'block';
+    }
+
+    if (type === 'surgery') {
+      document.getElementById('note-label').innerText = '手術項目';
+    } else if (type === 'exam') {
+      document.getElementById('note-label').innerText = '檢查項目';
+    } else {
+      document.getElementById('note-label').innerText = '就診原因 (備註)';
+    }
+    updateAvailableSlots();
+  }
+
+  function calculateSessionCapacity(date, session) {
+    const maxCapacity = SESSION_LIMITS[session];
+    const sessionBookings = bookings.filter(b => b.date === date && b.session === session);
+
+    let consumedCapacity = 0;
+    let usedNumbers = [];
+
+    sessionBookings.forEach(b => {
+      if (b.type === 'surgery') {
+        consumedCapacity += 3;
+      } else if (b.type === 'exam') {
+        consumedCapacity += (b.option === 'anesthesia') ? 2 : 1;
+      } else if (b.type === 'clinic') {
+        consumedCapacity += 1;
+        if (b.number) usedNumbers.push(b.number);
+      }
+    });
+
+    const remainingCapacity = Math.max(0, maxCapacity - consumedCapacity);
+    return { remainingCapacity, maxCapacity, usedNumbers };
+  }
+
+  function getNextClinicNumber(date, session) {
+    const { usedNumbers } = calculateSessionCapacity(date, session);
+    let nextNum = 1;
+    while (true) {
+      if (nextNum % 5 === 0) {
+        nextNum++;
+        continue;
+      }
+      if (!usedNumbers.includes(nextNum)) {
+        return nextNum;
+      }
+      nextNum++;
+    }
+  }
+
+  function updateAvailableSlots() {
+    const date = document.getElementById('booking-date').value;
+    if (!date) return;
+
+    ['morning', 'afternoon', 'evening'].forEach(s => {
+      const { remainingCapacity, maxCapacity } = calculateSessionCapacity(date, s);
+      const card = document.getElementById(`card-${s}`);
+      const countEl = document.getElementById(`count-${s}`);
+
+      if (remainingCapacity <= 0) {
+        card.classList.add('full');
+        countEl.innerHTML = `<strong style="color:#dc3545;">已額滿</strong> (${maxCapacity}人)`;
+      } else {
+        card.classList.remove('full');
+        countEl.innerHTML = `剩餘 <strong>${remainingCapacity}</strong> 人 / 上限 ${maxCapacity} 人`;
+      }
+    });
+  }
+
+  function selectSession(session) {
+    const date = document.getElementById('booking-date').value;
+    const { remainingCapacity } = calculateSessionCapacity(date, session);
+    
+    if (remainingCapacity <= 0) {
+      alert('該診次名額已滿，請選擇其他診次或日期！');
+      return;
+    }
+
+    selectedSession = session;
+    document.querySelectorAll('.session-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById(`card-${session}`).classList.add('selected');
+  }
+
+  function submitBooking() {
+    const type = document.getElementById('type-select').value;
+    const date = document.getElementById('booking-date').value;
+    const time = document.getElementById('booking-time').value;
+    const name = document.getElementById('patient-name').value;
+    const phone = document.getElementById('patient-phone').value;
+    const dob = document.getElementById('patient-dob').value;
+    const identity = document.getElementById('patient-identity').value;
+    const option = document.getElementById('anesthesia-type').value;
+    const meal = document.getElementById('meal-option').value;
+    const note = document.getElementById('booking-note').value;
+
+    if (!date || !name.trim()) {
+      alert('【錯誤】「日期」與「姓名」為必填欄位！');
+      return;
+    }
+
+    if (type !== 'clinic' && !time) {
+      alert('【錯誤】手術與檢查預約必須選擇「預約時間」！');
+      return;
+    }
+
+    const { remainingCapacity } = calculateSessionCapacity(date, selectedSession);
+    let requiredSlots = 1;
+    if (type === 'surgery') requiredSlots = 3;
+    if (type === 'exam') requiredSlots = (option === 'anesthesia') ? 2 : 1;
+
+    if (remainingCapacity < requiredSlots) {
+      alert('該診次剩餘容量不足以容納此預約項目！');
+      return;
+    }
+
+    let assignedNumber = null;
+    if (type === 'clinic') {
+      assignedNumber = getNextClinicNumber(date, selectedSession);
+    }
+
+    const newBooking = {
+      id: Date.now(),
+      type, date, session: selectedSession, time: type === 'clinic' ? '' : time, name, phone, dob, identity: type === 'clinic' ? identity : '', option, meal, detail: note,
+      number: assignedNumber, anesthesiologist: '', isEmergency: false
+    };
+
+    bookings.push(newBooking);
+    alert(`預約成功！${assignedNumber ? '您的看診號碼為：' + assignedNumber + ' 號' : '（手術/檢查預約成功）'}`);
+    
+    document.getElementById('patient-name').value = '';
+    document.getElementById('patient-phone').value = '';
+    document.getElementById('booking-note').value = '';
+    updateAvailableSlots();
+  }
+
+  // 計算週區間 (週一至週日)
+  function getWeekRange(dateStr) {
+    const d = new Date(dateStr);
+    const day = d.getDay();
+    const diffToMon = d.getDate() - day + (day === 0 ? -6 : 1);
+    
+    const monday = new Date(d.setDate(diffToMon));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    return {
+      start: monday.toISOString().split('T')[0],
+      end: sunday.toISOString().split('T')[0]
+    };
+  }
+
+  // 排序核心邏輯：同診次內，手術/檢查優先按時間，門診按號碼
+  function sortSessionBookings(items) {
+    return items.sort((a, b) => {
+      const isA_Timed = (a.type === 'surgery' || a.type === 'exam');
+      const isB_Timed = (b.type === 'surgery' || b.type === 'exam');
+
+      // 手術/檢查 優先於 看診
+      if (isA_Timed && !isB_Timed) return -1;
+      if (!isA_Timed && isB_Timed) return 1;
+
+      // 如果兩者都是手術/檢查 -> 按時間排序
+      if (isA_Timed && isB_Timed) {
+        return (a.time || '').localeCompare(b.time || '');
+      }
+
+      // 如果兩者都是一般看診 -> 按看診號碼排序
+      return (a.number || 0) - (b.number || 0);
+    });
+  }
+
+  function renderAdminTable() {
+    const tbody = document.getElementById('admin-table-body');
+    tbody.innerHTML = '';
+
+    let filteredBookings = [];
+
+    if (adminViewMode === 'day') {
+      const selectedDate = document.getElementById('admin-date-picker').value;
+      filteredBookings = bookings.filter(b => b.date === selectedDate);
+    } else if (adminViewMode === 'week') {
+      const selectedDate = document.getElementById('admin-date-picker').value;
+      const { start, end } = getWeekRange(selectedDate);
+      filteredBookings = bookings.filter(b => b.date >= start && b.date <= end);
+    } else if (adminViewMode === 'month') {
+      const selectedMonth = document.getElementById('admin-month-picker').value;
+      filteredBookings = bookings.filter(b => b.date.startsWith(selectedMonth));
+    }
+
+    if (filteredBookings.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#888; padding:30px;">該時間區間內尚無任何預約資料</td></tr>`;
+      return;
+    }
+
+    // 取得所有有資料的日期並排序
+    const uniqueDates = [...new Set(filteredBookings.map(b => b.date))].sort();
+
+    const sessionKeys = ['morning', 'afternoon', 'evening'];
+
+    uniqueDates.forEach(dateStr => {
+      // 週/月 檢視時呈現日期標題
+      if (adminViewMode !== 'day') {
+        const dateTr = document.createElement('tr');
+        dateTr.className = 'date-header-row';
+        dateTr.innerHTML = `<td colspan="8">📅 日期：${dateStr}</td>`;
+        tbody.appendChild(dateTr);
+      }
+
+      const dateBookings = filteredBookings.filter(b => b.date === dateStr);
+
+      sessionKeys.forEach(sessionKey => {
+        const sessionBookings = dateBookings.filter(b => b.session === sessionKey);
+        if (sessionBookings.length === 0) return; // 該診次無預約則不顯示標題
+
+        // 診次標題與分隔線
+        const sessionTr = document.createElement('tr');
+        sessionTr.className = 'session-header-row';
+        sessionTr.innerHTML = `<td colspan="8"><strong>📌 ${SESSION_NAMES[sessionKey]}</strong> (共 ${sessionBookings.length} 筆預約)</td>`;
+        tbody.appendChild(sessionTr);
+
+        // 進行診次內排序
+        const sortedBookings = sortSessionBookings(sessionBookings);
+
+        sortedBookings.forEach(b => {
+          const tr = document.createElement('tr');
+          
+          let badgeHtml = '';
+          if (b.type === 'surgery') {
+            badgeHtml = `<span class="badge badge-op">手術 (${b.option === 'anesthesia' ? '麻醉' : '局麻'})</span>`;
+          } else if (b.type === 'exam') {
+            badgeHtml = `<span class="badge badge-exam">檢查 (${b.option === 'anesthesia' ? '麻醉' : '無麻醉'})</span>`;
+          } else {
+            badgeHtml = `<span class="badge badge-clinic">一般看診</span>`;
+            if (b.identity === '初診') {
+              badgeHtml += `<span class="badge badge-first">初診</span>`;
+            }
+          }
+
+          if (b.isEmergency) {
+            badgeHtml += `<span class="badge badge-emergency">緊急號</span>`;
+          }
+
+          const timeDisplay = b.time ? `<strong>${b.time}</strong>` : '-';
+
+          let extraDetail = b.detail || '';
+          if (b.type === 'exam') {
+            const mealText = (b.meal === 'need') ? '【有代餐】' : '【無代餐】';
+            extraDetail = `${mealText} ${extraDetail}`;
+          }
+          if (b.anesthesiologist) {
+            extraDetail += ` (麻醉：${b.anesthesiologist})`;
+          }
+
+          tr.innerHTML = `
+            <td>${timeDisplay}</td>
+            <td>${badgeHtml}</td>
+            <td><strong>${b.number ? b.number + ' 號' : '-'}</strong></td>
+            <td>${b.name}</td>
+            <td>${b.phone || '-'}</td>
+            <td>${b.dob || '-'}</td>
+            <td>${extraDetail || '-'}</td>
+            <td>
+              <button class="btn-sm btn-edit" onclick="openEditModal(${b.id})">編輯</button>
+              <button class="btn-sm btn-delete" onclick="deleteBooking(${b.id})">釋出/刪除</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      });
+    });
+  }
+
+  function openEditModal(id) {
+    const b = bookings.find(item => item.id === id);
+    if (!b) return;
+
+    document.getElementById('modal-title').innerText = "編輯預約資料";
+    document.getElementById('edit-id').value = b.id;
+    document.getElementById('edit-date').value = b.date;
+    document.getElementById('edit-time').value = b.time || '';
+    document.getElementById('edit-session').value = b.session;
+    document.getElementById('edit-name').value = b.name;
+    document.getElementById('edit-phone').value = b.phone;
+    document.getElementById('edit-dob').value = b.dob;
+    document.getElementById('edit-identity').value = b.identity || '初診';
+    document.getElementById('edit-number').value = b.number || '';
+    document.getElementById('edit-anesthesiologist').value = b.anesthesiologist || '';
+    document.getElementById('edit-note').value = b.detail;
+
+    document.getElementById('edit-modal').style.display = 'flex';
+  }
+
+  function openEmergencyModal() {
+    document.getElementById('modal-title').innerText = "管理員手動新增 (包含特別預約號)";
+    document.getElementById('edit-id').value = '';
+    document.getElementById('edit-date').value = document.getElementById('admin-date-picker').value;
+    document.getElementById('edit-time').value = '';
+    document.getElementById('edit-name').value = '';
+    document.getElementById('edit-phone').value = '';
+    document.getElementById('edit-dob').value = '';
+    document.getElementById('edit-identity').value = '初診';
+    document.getElementById('edit-number').value = '5';
+    document.getElementById('edit-anesthesiologist').value = '';
+    document.getElementById('edit-note').value = '緊急/特別預約';
+
+    document.getElementById('edit-modal').style.display = 'flex';
+  }
+
+  function closeModal() {
+    document.getElementById('edit-modal').style.display = 'none';
+  }
+
+  function saveEdit() {
+    const id = document.getElementById('edit-id').value;
+    const name = document.getElementById('edit-name').value;
+    const date = document.getElementById('edit-date').value;
+
+    if (!date || !name.trim()) {
+      alert('「日期」與「姓名」為必填欄位！');
+      return;
+    }
+
+    if (id) {
+      const b = bookings.find(item => item.id == id);
+      b.date = date;
+      b.time = document.getElementById('edit-time').value;
+      b.session = document.getElementById('edit-session').value;
+      b.name = name;
+      b.phone = document.getElementById('edit-phone').value;
+      b.dob = document.getElementById('edit-dob').value;
+      b.identity = document.getElementById('edit-identity').value;
+      b.number = document.getElementById('edit-number').value ? parseInt(document.getElementById('edit-number').value) : null;
+      b.anesthesiologist = document.getElementById('edit-anesthesiologist').value;
+      b.detail = document.getElementById('edit-note').value;
+    } else {
+      const numInput = document.getElementById('edit-number').value;
+      const num = numInput ? parseInt(numInput) : null;
+      bookings.push({
+        id: Date.now(),
+        type: 'clinic',
+        date,
+        time: document.getElementById('edit-time').value,
+        session: document.getElementById('edit-session').value,
+        name,
+        phone: document.getElementById('edit-phone').value,
+        dob: document.getElementById('edit-dob').value,
+        identity: document.getElementById('edit-identity').value,
+        number: num,
+        anesthesiologist: document.getElementById('edit-anesthesiologist').value,
+        detail: document.getElementById('edit-note').value,
+        isEmergency: (num && num % 5 === 0) ? true : false
+      });
+    }
+
+    closeModal();
+    renderAdminTable();
+    updateAvailableSlots();
+  }
+
+  function deleteBooking(id) {
+    if (confirm('確定要取消/刪除此筆預約？刪除後名額與號碼將會釋出給後續預約者。')) {
+      bookings = bookings.filter(b => b.id !== id);
+      renderAdminTable();
+      updateAvailableSlots();
+    }
+  }
+
+  function exportToExcel() {
+    let filtered = [];
+    let filename = '';
+
+    if (adminViewMode === 'day') {
+      const selectedDate = document.getElementById('admin-date-picker').value;
+      filtered = bookings.filter(b => b.date === selectedDate);
+      filename = `診所預約清單_${selectedDate}.xlsx`;
+    } else if (adminViewMode === 'week') {
+      const selectedDate = document.getElementById('admin-date-picker').value;
+      const { start, end } = getWeekRange(selectedDate);
+      filtered = bookings.filter(b => b.date >= start && b.date <= end);
+      filename = `診所預約清單_週報_${start}_至_${end}.xlsx`;
+    } else if (adminViewMode === 'month') {
+      const selectedMonth = document.getElementById('admin-month-picker').value;
+      filtered = bookings.filter(b => b.date.startsWith(selectedMonth));
+      filename = `診所預約清單_月報_${selectedMonth}.xlsx`;
+    }
+    
+    if (filtered.length === 0) {
+      alert('該範圍內沒有可匯出的數據');
+      return;
+    }
+
+    const excelData = filtered.map(b => ({
+      '預約日期': b.date,
+      '診別': SESSION_NAMES[b.session] || b.session,
+      '時間點': b.time || '門診依號碼',
+      '類別': b.type === 'clinic' ? `看診 (${b.identity || '一般'})` : b.type,
+      '號碼': b.number ? `${b.number}號` : '無',
+      '姓名': b.name,
+      '電話': b.phone,
+      '出生年月日': b.dob,
+      '代餐需求': b.type === 'exam' ? (b.meal === 'need' ? '有代餐' : '無') : '-',
+      '麻醉/身份備註': b.identity || b.option,
+      '項目/備註': b.detail,
+      '麻醉醫師': b.anesthesiologist || '-'
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "預約總覽");
+    XLSX.writeFile(workbook, filename);
+  }
+
+  // 初始化設定
+  toggleFormType();
+  selectSession('morning');
+</script>
+</body>
+</html>
